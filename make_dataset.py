@@ -23,7 +23,7 @@ def walk_dir(dir_path):
             # unlabeled dataset
             image_name = sub_item_path.name
             if has_file_allowed_extension(image_name, IMG_EXTENSIONS):
-                image_paths.append(str(dir_path / image_name))
+                image_paths.append(str(dir_path.relative_to(root_path) / image_name))
 
 
     classes = sorted(classes)
