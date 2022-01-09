@@ -1,105 +1,119 @@
+import numpy as np
 from pathlib import Path
 import re
 import matplotlib.pyplot as plt
 
-def visualize_ood(metrics, label, fig_path):
-    x = list(range(len(metrics)))
-    l = plt.plot(x, metrics, 'g--', label=label)
+import torch
+
+from metrics import compute_all_metrics
+
+
+def draw_line(data, shape, label):
+    x = list(range(len(data)))
+    max_idx = data.index(max(data))
+    min_idx = data.index(min(data))
+    l1 = plt.plot(x, data, shape, label=label)
+    plt.plot(max_idx, data[max_idx], 'bs')
+    max_show_text = '('+str(max_idx)+','+str(data[max_idx])+')'
+    plt.annotate(max_show_text, xy=(max_idx, data[max_idx]))
+    min_show_text = '('+str(min_idx)+','+str(data[min_idx])+')'
+    plt.annotate(min_show_text, xy=(min_idx, data[min_idx]))
+
+def single_visualize(data, label_data, label_x, label_y, fig_path):
+    plt.clf()
+    draw_line(data, 'c--', label_data)
 
     # plt.title(label)
-    plt.xlabel('epoch')
-    plt.ylabel(label)
+    plt.xlabel(label_x)
+    plt.ylabel(label_y)
     plt.legend()
     plt.savefig(fig_path)
     plt.close()
 
 
-def visualize_loss(train_loss, test_loss, label, fig_path):
+def double_visualize(data_a, data_b, label_a, label_b, label_x, label_y, fig_path):
     # visualize the trend
-    x = list(range(len(train_loss)))
-    l1 = plt.plot(x, train_loss, 'r--', label='train loss')
-    l2 = plt.plot(x, test_loss, 'g--', label='test loss')
+    assert len(data_a) == len(data_b)
+    plt.clf()
+    draw_line(data_a, 'r--', label_a)
+    draw_line(data_b, 'g--', label_b)
 
     # plt.title('Loss')
-    plt.xlabel('epoch')
-    plt.ylabel(label)
+    plt.xlabel(label_x)
+    plt.ylabel(label_y)
     plt.legend()
     plt.savefig(fig_path)
     plt.close()
 
+id = 'cifar10'
+oods = ['svhn', 'cifar100', 'tinc', 'tinr', 'lsunc', 'lsunr', 'dtd', 'places365', 'isun']
+root_path = Path('/mnt/c/Users/jwy/Desktop/22.1.8/')
 
-results_dir = Path('/mnt/c/Users/jwy/Desktop/21.12.30/')
+paradigms = ['no_pre', 'pre']
+lambda_recs = ['0.00001', '0.00003', '0.00005', '0.00007', '0.00009', '0.0001', '0.0003', '0.0005']
 
-dirs = ['0', '0.0001', '0.0005', '0.001', '0.002', '0.003', '0.004', '0.005']
+# dirs = ['_'.join([paradigm, lambda_rec]) for paradigm in paradigms for lambda_rec in lambda_recs]
 
-for dir in dirs:
-    result_dir_path = results_dir / dir / str('wp-resnet18_ae-cifar10-reconstruct-lambda_reconstruct_' + dir)
-    result_path =  result_dir_path / 'console.log'
+pattern = r'\d+\.+\d*'
+print('---> start.')
+for paradigm in paradigms:
+    for lambda_rec in lambda_recs:
+        exp_path = root_path / '-'.join([paradigm, lambda_rec])
+        print('---> parse exp: {} {}'.format(paradigm, lambda_rec))
+        console_path = exp_path / 'console.log'
+        
+        with open(console_path) as f:
+            contents = f.readlines()
+        cla_accs, rec_errs = [], []
 
-    print('---> analyse dir: {}'.format(dir))
-    with open(result_path) as f:
-        contents = f.readlines()
-
-    # parse contents
-    cla_loss_lists = []
-    cla_acc_lists = []
-    rec_loss_lists = []
-    loss_lists = []
-
-    auroc_lists = []
-    aupr_in_lists = []
-    aupr_out_lists = []
-    fpr_tpr_lists = []
-
-    pattern = r'\d+\.+\d*'
-    aurocs = []
-    aupr_ins = []
-    aupr_outs = []
-    fpr_tprs = []
-
-    for line in contents:
-
-        # epoch_count = 0
-        if line.startswith('[cla_loss:'):
-            # parse the digits
-            cla_loss, cla_acc, rec_loss, train_loss = re.findall(pattern, line)
-            cla_loss_lists.append(float(cla_loss))
-            cla_acc_lists.append(float(cla_acc))
-            rec_loss_lists.append(float(rec_loss))
-            loss_lists.append(float(train_loss))
-        elif line.startswith('[auroc:'):
-            auroc, aupr_in, aupr_out, fpr_tpr = re.findall(pattern, line)
-            aurocs.append(float(auroc))
-            aupr_ins.append(float(aupr_in))
-            aupr_outs.append(float(aupr_out))
-            fpr_tprs.append(float(fpr_tpr))
-        elif line.startswith('Epoch'):
-            auroc_lists.append(sum(aurocs) / len(aurocs))
-            aupr_in_lists.append(sum(aupr_ins) / len(aupr_ins))
-            aupr_out_lists.append(sum(aupr_outs) / len(aupr_outs))
-            fpr_tpr_lists.append(sum(fpr_tprs) / len(fpr_tprs))
+        for line in contents:
+            if line.startswith('[cla_loss:'):
+                _, rec_err, _, cla_acc = re.findall(pattern, line) 
+                cla_accs.append(float(cla_acc))
+                rec_errs.append(float(rec_err))
+        train_cla_accs, train_rec_errs = cla_accs[::2], cla_accs[1::2]
+        test_cla_accs, test_rec_errs = rec_errs[::2], rec_errs[1::2]
+        # plot cla_acc-epoch.png & rec_err-epoch.png
+        double_visualize(train_cla_accs, test_cla_accs, 'train-acc', 'test-acc', 'epoch', 'accuracy', str(exp_path / 'cla_accs.png'))
+        double_visualize(train_rec_errs, test_rec_errs, 'train-rec', 'test-rec', 'epoch', 'rec_err', str(exp_path / 'rec_errs.png'))
+        
+        fpr_at_tprs, aurocs, aupr_ins, aupr_outs = [], [], [], []
+        # cal each epoch auroc, fpr_at_tpr, aupr_in, aupr_out
+        for i in range(200):
+            # traverse all epoch
+            epoch_path = exp_path / str(i)
+            # read all data set
+            id_logits = np.load(str(epoch_path / ('-'.join(['logits', id]) + '.npy')))
+            print(id_logits.shape)
+            total_fpr_at_tpr, total_auroc, total_aupr_in, total_aupr_out = [], [], [], []
+            for ood in oods:
+                ood_logits = np.load(str(epoch_path / ('-'.join(['logits', ood]) + '.npy')))
+                id_logits, ood_logits = torch.from_numpy(id_logits), torch.from_numpy(ood_logits)
+                print(id_logits.shape)
+                exit()
+                # calculate mean auroc & aupr_in & aupr_out & fpr_tpr
+                id_scores = torch.max(torch.softmax(id_logits, dim=1), dim=1)[0].numpy()
+                id_labels = np.zeros(id_scores.shape[0])
+                ood_scores = torch.max(torch.softmax(ood_logits, dim=1), dim=1)[0].numpy()
+                ood_labels = np.ones(ood_scores.shape[0])
+                confs = np.concatenate([id_scores, ood_scores])
+                labels = np.concatenate([id_labels, ood_labels])
+                fpr_at_tpr, auroc, aupr_in, aupr_out = compute_all_metrics(confs, labels)
+                total_fpr_at_tpr.append(fpr_at_tpr)
+                total_auroc.append(auroc)
+                total_aupr_in.append(aupr_in)
+                total_aupr_out.append(aupr_out)
             
-            # clear
-            aurocs = []
-            aupr_ins = []
-            aupr_outs = []
-            fpr_tprs = []
-    # parse over, visualize
-    train_cla_loss_lists = cla_loss_lists[::2]
-    test_cla_loss_lists = cla_loss_lists[1::2]
-    visualize_loss(train_cla_loss_lists, test_cla_loss_lists, 'classification_loss', str(result_dir_path / 'classification_loss.png'))
-    train_cla_acc_lists = cla_acc_lists[::2]
-    test_cla_acc_lists = cla_acc_lists[1::2]
-    visualize_loss(train_cla_acc_lists, test_cla_acc_lists, 'classification_acc', str(result_dir_path / 'classification_acc.png'))
-    train_rec_loss_lists = rec_loss_lists[::2]
-    test_rec_loss_lists = rec_loss_lists[1::2]
-    visualize_loss(train_rec_loss_lists, test_rec_loss_lists, 'reconstruction_loss', str(result_dir_path / 'reconstruction_loss.png'))
-    train_loss_lists = loss_lists[::2]
-    test_loss_lists = loss_lists[1::2]
-    visualize_loss(train_loss_lists, test_loss_lists, 'loss', str(result_dir_path / 'loss.png'))
+            fpr_at_tprs.append(np.mean(total_fpr_at_tpr))
+            aurocs.append(np.mean(total_auroc))
+            aupr_ins.append(np.mean(total_aupr_in))
+            aupr_outs.append(np.mean(total_aupr_out))
+        # plot each
+        single_visualize(fpr_at_tprs, 'fpr@95tpr', 'epoch', 'fpr@95tpr', str(exp_path / 'fpr_at_tprs.png'))
+        single_visualize(aurocs, 'auroc', 'epoch', 'auroc', str(exp_path / 'aurocs.png'))
+        single_visualize(aupr_ins, 'aupr_in', 'epoch', 'aupr_in', str(exp_path / 'aupr_ins.png'))
+        single_visualize(aupr_outs, 'aupr_out', 'epoch', 'aupr_out', str(exp_path / 'aupr_outs.png'))
+print('---> done.')
 
 
-    visualize_ood(auroc_lists, 'auroc', str(result_dir_path / 'auroc.png'))
-    visualize_ood(aupr_in_lists, 'aupr_in', str(result_dir_path / 'aupr_in.png'))
-    visualize_ood(aupr_out_lists, 'aupr_out', str(result_dir_path / 'aupr_out.png'))
-    visualize_ood(fpr_tpr_lists, 'fpr_tpr', str(result_dir_path / 'fpr_tpr.png'))
+            
