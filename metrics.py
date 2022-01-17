@@ -36,7 +36,7 @@ def auc_roc_pr(conf, label):
 # def acc(pred, label):
 
 
-def compute_all_metrics(conf, label, verbose=True):
+def compute_all_metrics(conf, label, verbose=False):
     tpr = 0.95
     fpr_at_tpr = fpr_tpr(conf, label, tpr)
     auroc, aupr_in, aupr_out = auc_roc_pr(conf, label)
